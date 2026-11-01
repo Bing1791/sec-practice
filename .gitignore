@@ -1,0 +1,23 @@
+# 原始 PDF
+*.pdf
+
+# 明文題庫與含題目原文的檔案（只有 data/questions.enc.json 進 repo）
+data/questions.json
+data/explanations_ai.json
+scripts/ai_explanations/
+scripts/disputes.json
+
+# 報告檔
+data/parse_report.json
+
+# 截圖
+tests/screenshots/
+*.png
+
+# 暫存檔
+__pycache__/
+*.pyc
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
