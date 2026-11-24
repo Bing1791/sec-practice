@@ -4,11 +4,12 @@ import { setKeys } from '../keyboard.js';
 import { createQuestion } from '../quiz.js';
 import { load, save } from '../storage.js';
 
-const SOURCES = ['ceh13-01.pdf', 'ceh13-02.pdf', 'ceh13-03.pdf', 'ceh13-04.pdf'];
+// 來源清單由題庫產生，新增 PDF 時不必改程式
+const sources = () => [...new Set(allQuestions().map((q) => q.source))].sort();
 
 function searchable(q) {
   const shown = resolve(q);
-  return `${shown.question} ${Object.values(shown.options).join(' ')}`.toLowerCase();
+  return `${shown.question} ${shown.figureText ?? ''} ${Object.values(shown.options).join(' ')}`.toLowerCase();
 }
 
 export function renderStudy(app) {
@@ -20,7 +21,7 @@ export function renderStudy(app) {
 
   const sourceSelect = h('select', { 'aria-label': '來源', onchange: (e) => { state.source = e.target.value; state.id = null; refilter(); } },
     h('option', { value: 'all' }, '全部來源'),
-    SOURCES.map((s) => h('option', { value: s }, s)));
+    sources().map((s) => h('option', { value: s }, s)));
   sourceSelect.value = state.source;
   const searchInput = h('input', { type: 'search', placeholder: '搜尋題目或選項', 'aria-label': '搜尋', value: state.query });
   let searchTimer;

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 QUESTIONS = ROOT / "data/questions.json"
 EXPLANATIONS = ROOT / "data/explanations_ai.json"
 OUTPUT = ROOT / "data/questions.enc.json"
+VERSION = ROOT / "data/version.json"
 
 MIN_PASSWORD_LENGTH = 12
 ITERATIONS = 600_000
@@ -62,6 +63,13 @@ def is_up_to_date():
     return OUTPUT.stat().st_mtime >= max(QUESTIONS.stat().st_mtime, EXPLANATIONS.stat().st_mtime)
 
 
+def write_version():
+    """前端用這個雜湊當 questions.enc.json 的 ?v= 參數，題庫更新後各裝置不會讀到快取的舊版。"""
+    digest = hashlib.sha256(OUTPUT.read_bytes()).hexdigest()[:16]
+    VERSION.write_text(json.dumps({"hash": digest}) + "\n", "utf-8")
+    return digest
+
+
 def ask_password():
     password = getpass.getpass("題庫密碼（至少 12 字元）：")
     if len(password) < MIN_PASSWORD_LENGTH:
@@ -74,6 +82,7 @@ def ask_password():
 def main():
     if "--if-changed" in sys.argv[1:] and is_up_to_date():
         print("題庫沒有更新，略過加密。")
+        write_version()
         return
     password = ask_password()
     if OUTPUT.exists() and not password_matches(json.loads(OUTPUT.read_text("utf-8")), password):
@@ -81,7 +90,7 @@ def main():
         if input("確定要改用新密碼嗎？(y/N) ").strip().lower() != "y":
             sys.exit("已取消，沒有變更檔案。")
     OUTPUT.write_text(json.dumps(encrypt(build_plaintext(), password)), "utf-8")
-    print(f"已產生 {OUTPUT.relative_to(ROOT).as_posix()}（{OUTPUT.stat().st_size // 1024} KB）")
+    print(f"已產生 {OUTPUT.relative_to(ROOT).as_posix()}（{OUTPUT.stat().st_size // 1024} KB），版本 {write_version()}")
 
 
 if __name__ == "__main__":

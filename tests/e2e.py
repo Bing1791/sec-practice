@@ -14,6 +14,11 @@ SHOTS = Path(__file__).parent / "screenshots"
 PORT = 8765
 BASE = f"http://localhost:{PORT}/"
 QUESTIONS = {q["id"]: q for q in json.loads((ROOT / "data/questions.json").read_text("utf-8"))}
+# 出題範圍（首頁題庫數）：排除合併題，相似題每組算一題。從資料計算，新增題庫時不必改測試。
+_kept = [q for q in QUESTIONS.values() if "duplicateOf" not in q]
+POOL = len([q for q in _kept if not q.get("similarGroup")]) + len({q["similarGroup"] for q in _kept if q.get("similarGroup")})
+FIGURE_IDS = ["05-074", "05-037", "05-280"]
+MISSING_NOTE = "PDF 原文缺漏，依常見版本補上"
 results = []
 
 
@@ -81,7 +86,7 @@ def test_home_theme(page):
     check("首頁顯示四個入口", page.locator(".mode").count() == 4)
     check("首頁沒有 null 字樣", "null" not in page.locator("#app").inner_text())
     text = page.locator(".stats").inner_text()
-    check("首頁題庫數為去重後 781 題", "781" in text, text)
+    check(f"首頁題庫數為去重後 {POOL} 題", str(POOL) in text, text)
     goto(page, "/settings")
     page.locator("input[value=dark]").check()
     check("切換深色", page.evaluate("document.documentElement.dataset.theme") == "dark")
@@ -125,7 +130,9 @@ def test_study(page):
     page.locator("input[type=search]").fill("")
     page.wait_for_selector(".question")
 
-    for qid, expect, absent in [("02-040", "答案疑義", "答案已修正"), ("04-405", None, "答案疑義"), ("02-083", "答案已修正", "答案疑義")]:
+    check("來源篩選含 ceh13-05.pdf", page.locator("select option[value='ceh13-05.pdf']").count() == 1)
+    for qid, expect, absent in [("02-040", "答案疑義", "答案已修正"), ("04-405", None, "答案疑義"), ("02-083", "答案已修正", "答案疑義"),
+                                ("05-249", "答案已修正", "答案疑義"), ("05-233", "答案疑義", "答案已修正"), ("05-211", "答案疑義", "答案已修正")]:
         page.locator("select").select_option(QUESTIONS[qid]["source"])
         page.wait_for_selector(".question")
         page.locator("input[type=number]").fill(str(int(qid[3:]) if qid[:2] != "02" or int(qid[3:]) < 110 else int(qid[3:]) - 1))
@@ -172,7 +179,7 @@ def test_drill(page):
     check("一輪不重複", len(order) == len(set(order)))
     check("一輪不含重複題", not any("duplicateOf" in QUESTIONS[i] for i in order))
     check("相似題只出一題", ("04-060" in order) + ("04-423" in order) == 1, len(order))
-    check("一輪共 781 題", len(order) == 781, len(order))
+    check(f"一輪共 {POOL} 題", len(order) == POOL, len(order))
     # 最後一題做完才重新洗牌
     drill["pos"] = len(order) - 1
     drill["current"] = None
@@ -513,12 +520,15 @@ def test_unlock(browser):
     check("迭代至少 600,000 次", payload["iterations"] >= 600_000)
     check("密碼比對", encrypt_data.password_matches(payload, password) and not encrypt_data.password_matches(payload, "wrong-password-1234"))
 
+    enc_urls = []
+
     def locked_context(**kwargs):
         context = browser.new_context(accept_downloads=True, **kwargs)
         # 模擬 GitHub Pages：沒有明文，只有密文
         context.route("**/data/questions.json", lambda r: r.fulfill(status=404))
         context.route("**/data/explanations_ai.json", lambda r: r.fulfill(status=404))
-        context.route("**/data/questions.enc.json", lambda r: r.fulfill(json=payload))
+        context.route("**/data/version.json", lambda r: r.fulfill(json={"hash": "abc123"}))
+        context.route("**/data/questions.enc.json*", lambda r: (enc_urls.append(r.request.url), r.fulfill(json=payload)))
         return context
 
     context = locked_context(viewport={"width": 1280, "height": 860})
@@ -535,7 +545,8 @@ def test_unlock(browser):
     page.locator("input[type=password]").fill(password)
     page.get_by_role("button", name="解鎖").click()
     page.wait_for_selector(".stats", timeout=20000)
-    check("解鎖後載入 781 題", "781" in page.locator(".stats").inner_text())
+    check(f"解鎖後載入 {POOL} 題", str(POOL) in page.locator(".stats").inner_text())
+    check("密文網址帶版本參數", enc_urls and all(u.endswith("questions.enc.json?v=abc123") for u in enc_urls), enc_urls)
     check("解鎖後含 AI 解析", page.evaluate("import('./js/data.js').then(m => Boolean(m.allQuestions().find(q => q.aiExplanation)))"))
     check("沒勾選不記住密碼", page.evaluate("localStorage.getItem('ceh-unlock-password')") is None)
     page.reload()
@@ -578,6 +589,52 @@ def test_unlock(browser):
     page.wait_for_selector(".stats")
     check("有明文時略過解密", page.locator("input[type=password]").count() == 0)
     context.close()
+
+
+def check_figure(page, qid, where, mobile):
+    fig = page.locator(".question .figure").first
+    ok = fig.count() == 1 and fig.locator("pre").is_visible()
+    text = fig.locator("pre").inner_text() if ok else ""
+    expect = QUESTIONS[qid]["figureText"].splitlines()[0]
+    caption = fig.locator("figcaption").inner_text() if fig.locator("figcaption").count() else ""
+    note_ok = caption == MISSING_NOTE if QUESTIONS[qid].get("figureNote") else caption == ""
+    tag = "手機" if mobile else "電腦"
+    check(f"{tag}{where}顯示 {qid} 程式碼區塊與標籤", ok and expect in text and note_ok, (text[:60], caption))
+    if mobile:
+        check(f"{tag}{where} {qid} 無橫向捲動", no_h_scroll(page))
+
+
+def test_figures(page, mobile=False):
+    """05-074 的 Nmap 輸出、05-037／05-280 補上的內容，在學習、刷題、模擬考都要顯示。"""
+    reset(page)
+    goto(page, "/study")
+    page.locator("select").select_option("ceh13-05.pdf")
+    page.wait_for_selector(".question")
+    for qid in FIGURE_IDS:
+        page.locator("input[type=number]").fill(str(int(qid[3:])))
+        page.locator("input[type=number]").press("Enter")
+        check_figure(page, qid, "學習", mobile)
+    if mobile:
+        page.locator("input[type=number]").fill("74")
+        page.locator("input[type=number]").press("Enter")
+        wide = page.evaluate("(() => { const p = document.querySelector('.figure pre'); return p.scrollWidth > p.clientWidth; })()")
+        check("手機 Nmap 輸出在區塊內水平捲動", wide)
+        page.screenshot(path=SHOTS / "mobile-figure.png", full_page=True)
+    else:
+        page.screenshot(path=SHOTS / "study-figure.png", full_page=True)
+
+    set_ls(page, "drill", {"order": FIGURE_IDS, "pos": 0, "answered": 0, "correct": 0, "current": None})
+    goto(page, "/drill")
+    check_figure(page, "05-074", "刷題", mobile)
+
+    now = page.evaluate("Date.now()")
+    set_ls(page, "exam", {"id": str(now), "startedAt": now, "durationMs": 4 * 3600 * 1000, "ids": FIGURE_IDS,
+                          "answers": {}, "marked": {}, "current": 1})
+    goto(page, "/exam")
+    check_figure(page, "05-037", "模擬考", mobile)
+    page.locator(".exam-main").get_by_role("button", name="下一題").click()
+    check_figure(page, "05-280", "模擬考", mobile)
+    reset(page)
 
 
 def test_mobile(browser):
@@ -625,6 +682,7 @@ def test_mobile(browser):
     check("375px 無橫向捲動：history", no_h_scroll(page))
 
     test_translate(page, mobile=True)
+    test_figures(page, mobile=True)
     check("手機版沒有 JS 錯誤", not errors, errors)
     context.close()
 
@@ -638,7 +696,7 @@ def main():
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        for test in (test_home_theme, test_study, test_drill, test_exam, test_wrongbook, test_translate, test_settings):
+        for test in (test_home_theme, test_study, test_drill, test_exam, test_wrongbook, test_translate, test_settings, test_figures):
             try:
                 test(page)
             except Exception as err:  # 單一區塊失敗時仍跑完其他區塊

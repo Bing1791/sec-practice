@@ -37,6 +37,14 @@ export function explanationBlock(q) {
   return parts;
 }
 
+// 題目附帶的指令、輸出或程式碼（PDF 插圖轉成的文字，或 PDF 漏印後補上的內容）
+function figureBlock(q) {
+  if (!q.figureText) return null;
+  return h('figure', { class: 'figure' },
+    q.figureNote && h('figcaption', {}, h('span', { class: 'badge note' }, q.figureNote)),
+    h('pre', { tabindex: '0', 'aria-label': '題目附帶內容' }, h('code', {}, q.figureText)));
+}
+
 export function createQuestion(q, { mode, selected = [], revealed = false, onAnswer, onChange, label } = {}) {
   const state = { selected: new Set(selected), revealed: revealed || mode === 'review' };
   const letters = Object.keys(q.options);
@@ -126,6 +134,7 @@ export function createQuestion(q, { mode, selected = [], revealed = false, onAns
         h('span', {}, label || `題目 ${q.id}`),
         q.multi && h('span', { class: 'badge multi' }, `複選（${q.answer.length} 個答案）`)),
       h('p', { class: 'stem translatable' }, q.question),
+      figureBlock(q),
       list,
       submitBtn,
       feedback),

@@ -6,13 +6,13 @@ let byId = new Map();
 
 // 本機有明文題庫就直接使用並回傳 null；否則回傳密文，由 unlockData 解開
 export async function loadData() {
-  const res = await fetch('data/questions.json');
+  const res = await fetch('data/questions.json', { cache: 'no-store' });
   if (res.ok) {
     const plain = await res.json();
     // AI 解析是選用的，缺檔時題庫仍可使用
     let ai = {};
     try {
-      const aiRes = await fetch('data/explanations_ai.json');
+      const aiRes = await fetch('data/explanations_ai.json', { cache: 'no-store' });
       if (aiRes.ok) ai = await aiRes.json();
     } catch {
       ai = {};
@@ -20,9 +20,22 @@ export async function loadData() {
     useData(plain, ai);
     return null;
   }
-  const encRes = await fetch('data/questions.enc.json');
+  const encRes = await fetch(`data/questions.enc.json${await versionQuery()}`);
   if (!encRes.ok) throw new Error(`questions.enc.json：HTTP ${encRes.status}`);
   return encRes.json();
+}
+
+// data/version.json 記錄密文的雜湊值（由 encrypt_data.py 產生），每次都向伺服器確認；
+// 密文網址帶上 ?v=雜湊值，題庫一更新網址就不同，瀏覽器和手機不會讀到快取的舊題庫
+async function versionQuery() {
+  try {
+    const res = await fetch('data/version.json', { cache: 'no-store' });
+    if (!res.ok) return '';
+    const { hash } = await res.json();
+    return typeof hash === 'string' && /^[0-9a-f]+$/.test(hash) ? `?v=${hash}` : '';
+  } catch {
+    return '';
+  }
 }
 
 export async function unlockData(payload, password) {
@@ -43,6 +56,10 @@ function useData(list, ai) {
     }
   }
   byId = new Map(questions.map((q) => [q.id, q]));
+  // 01～03、05 的分類放在 AI 資料裡；被合併的題目沿用保留題的分類
+  for (const q of questions) {
+    if (!q.category && q.duplicateOf) q.category = byId.get(q.duplicateOf)?.category;
+  }
 }
 
 export const allQuestions = () => questions;

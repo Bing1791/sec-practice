@@ -238,6 +238,22 @@ input[type="number"], input[type="search"], input[type="email"], input[type="pas
 .badge.disputed { background: var(--warn-soft); color: var(--warn); }
 .badge.ai { background: var(--ai-soft); color: var(--ai); }
 .badge.multi { background: var(--accent-soft); color: var(--accent); }
+.badge.note { background: var(--warn-soft); color: var(--warn); }
+/* 題目附帶的指令或輸出：保留換行與對齊，太寬時在區塊內水平捲動，不撐開頁面 */
+.figure { margin: 0 0 16px; min-width: 0; max-width: 100%; }
+.figure figcaption { margin-bottom: 6px; }
+.figure pre {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font: 0.8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+  tab-size: 4;
+}
 .notice {
   margin-top: 12px;
   padding: 12px;

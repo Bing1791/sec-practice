@@ -21,3 +21,6 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+
+# 題目附帶內容（05 插圖文字與補上的缺漏內容）
+scripts/figures_05.json

@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BROKEN_WORDS = re.compile(r"\b(?:tra ic|o icial|o ice|sta |di erent|a ect|e ect|e ort|su ic|insu ic|sni er|bu er|o set|o line)", re.I)
-RESIDUE = re.compile(r"[Ưﬀ-ﬄ☐•店铺]|#{3,}|\bof 411\b|ECCouncil - 312|Shutterstock")
+RESIDUE = re.compile(r"[Ưﬀ-ﬄ☐•店铺]|#{3,}|\bof 411\b|ECCouncil - 312|Shutterstock|Correct Answer|QUESTION #")
 
 
 def norm(text):
@@ -159,6 +159,35 @@ def main():
         show(q)
     print("\n== 03 隨機抽 10 題（核對粗體答案）==")
     for q in sorted(rng.sample([q for q in questions if q["source"] == "ceh13-03.pdf"], 10), key=lambda q: q["number"]):
+        show(q)
+    report_05(questions, report, rng)
+
+
+def report_05(questions, report, rng):
+    """05 的專屬檢查：題數、合併、相似題、選項字母修正、插圖，並抽 10 題核對。"""
+    by_id = {q["id"]: q for q in questions}
+    q05 = [q for q in questions if q["source"] == "ceh13-05.pdf"]
+    print("\n== ceh13-05.pdf ==")
+    print(f"題數 {len(q05)}，缺答案 {[q['id'] for q in q05 if not q['answer']] or '無'}，"
+          f"選項不是 4 個 {[q['id'] for q in q05 if len(q['options']) != 4] or '無'}")
+    print("答案分布：", dict(sorted(Counter(a for q in q05 for a in q["answer"]).items())))
+    print("選項字母修正：", [r for r in report["repairs"] if r["id"].startswith("05-")] or "無")
+    print("插圖（轉成 figureText）：", report.get("images_05") or "無")
+    print("PDF 缺漏、依常見版本補上：", report.get("missing_05") or "無")
+    residue = [q["id"] for q in q05 for t in (q["question"], *q["options"].values())
+               if re.search(r"(^|\s)116(\s|$)|(^|\s)CEH$", t)]
+    print("頁碼 116 / 頁首 CEH 殘留：", residue or "無")
+    print("合併（duplicateOf）：")
+    for q in questions:
+        if "duplicateOf" in q and (q["id"].startswith("05-") or q["duplicateOf"].startswith("05-")):
+            print(f"  {q['id']} → {q['duplicateOf']}  答案{'是同一選項' if same_option(q, by_id[q['duplicateOf']]) else '不同'}")
+    groups = defaultdict(list)
+    for q in questions:
+        if q.get("similarGroup"):
+            groups[q["similarGroup"]].append(q["id"])
+    print("相似題群組：", dict(groups))
+    print("\n== 05 隨機抽 10 題 ==")
+    for q in sorted(rng.sample(q05, 10), key=lambda q: q["number"]):
         show(q)
 
 

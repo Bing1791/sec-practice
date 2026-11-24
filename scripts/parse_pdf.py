@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把 ceh13-01.pdf ~ ceh13-04.pdf 解析成 data/questions.json。
+"""把 ceh13-01.pdf ~ ceh13-05.pdf 解析成 data/questions.json。
 
 用法：python scripts/parse_pdf.py
 另外輸出 data/parse_report.json，供 scripts/validate.py 回報解析時發現的問題。
@@ -305,6 +305,88 @@ def parse_04(path):
     return result
 
 
+# 05 的插圖（第 74 題 Nmap 輸出）轉成文字，以及 PDF 漏印後依常見版本補上的內容（37、280 題）。
+# 內容屬於題目本身，存在不進 repo 的 figures_05.json，只隨加密題庫發布。
+FIGURES_FILE = Path(__file__).with_name("figures_05.json")
+_figures = json.loads(FIGURES_FILE.read_text("utf-8")) if FIGURES_FILE.exists() else {"figures": {}, "missing": {}}
+FIGURES_05 = {int(k): v for k, v in _figures["figures"].items()}
+MISSING_05 = {int(k): v for k, v in _figures["missing"].items()}
+
+
+NOISE_05 = [" Answered Marked for Review 37.6% "]
+
+
+def parse_05(path):
+    """05：`QUESTION #N`，選項 `A.`～`D.`，答案 `Correct Answer: X` 接在最後一個選項同列或下一行，無解析。"""
+    doc = pymupdf.open(path)
+    questions, current, expected = [], None, 1
+    pending_answer = False  # `Correct Answer:` 後的字母掉到下一行（跨頁）
+    for page in doc:
+        image_pages = bool(page.get_images())
+        for line in page_lines(page):
+            text = line["text"].strip()
+            if text in ("CEH", "116"):  # 頁首、頁尾
+                continue
+            head = re.fullmatch(r"QUESTION #(\d+)", text)
+            if head and int(head.group(1)) == expected:
+                current = {"number": expected, "stem": "", "options": {}, "answer": [], "last": None,
+                           "image": image_pages and expected in FIGURES_05}
+                questions.append(current)
+                expected += 1
+                pending_answer = False
+                continue
+            if current is None:
+                continue
+            if pending_answer and re.fullmatch(r"[A-D]", text):
+                current["answer"] = [text]
+                pending_answer = False
+                continue
+            answer = re.search(r"Correct Answer:\s*([A-D])?\s*$", text)
+            if answer:
+                text = text[:answer.start()].strip()
+                if answer.group(1):
+                    current["answer"] = [answer.group(1)]
+                else:
+                    pending_answer = True
+            if not text:
+                continue
+            option = re.match(r"^([A-E])\.\s+(.*)$", text)
+            expected_label = chr(65 + len(current["options"]))
+            # PDF 偶有字母印錯（174 題第 4 個選項印成 E.、184 題第 3 個印成 B.），依順序重編並記錄
+            misprint = (option and option.group(1) != expected_label and current["last"]
+                        and len(current["options"]) < 4)
+            if option and (option.group(1) == expected_label or misprint):
+                if misprint:
+                    report["repairs"].append({"id": f"05-{current['number']:03d}",
+                                              "from": f"option {option.group(1)}.", "to": f"{expected_label}."})
+                current["options"][expected_label] = option.group(2)
+                current["last"] = expected_label
+            elif current["last"]:
+                current["options"][current["last"]] += " " + text
+            else:
+                current["stem"] += " " + text
+
+    result = []
+    for q in questions:
+        # 146 題的題幹混入考試網站介面文字
+        for bad in NOISE_05:
+            if bad in q["stem"]:
+                q["stem"] = q["stem"].replace(bad, " ")
+                report["repairs"].append({"id": f"05-{q['number']:03d}", "from": bad.strip(), "to": "(刪除)"})
+        extra = {}
+        if q["number"] in FIGURES_05:
+            extra["figureText"] = FIGURES_05[q["number"]]
+        elif q["number"] in MISSING_05:
+            extra["figureText"] = MISSING_05[q["number"]]
+            extra["figureNote"] = "PDF 原文缺漏，依常見版本補上"
+        question = make_question("05", q["number"], path.name, q["stem"], q["options"], q["answer"], **extra)
+        question["hasImage"] = q["number"] in FIGURES_05
+        result.append(question)
+    report["images_05"] = [f"05-{n:03d}" for n in FIGURES_05]
+    report["missing_05"] = [f"05-{n:03d}" for n in MISSING_05]
+    return result
+
+
 def paragraphs(lines):
     """以句號結尾的短行視為段落結束，其餘接回同一段。"""
     out, current = [], ""
@@ -326,7 +408,8 @@ def apply_duplicates(questions):
         for hidden, kept in json.loads(DUPLICATES.read_text("utf-8")).items():
             by_id[hidden]["duplicateOf"] = kept
             # 解析不複製：選項順序可能不同，解析中的字母會對不上。顯示時改用保留版本。
-            by_id[hidden]["category"] = by_id[kept]["category"]
+            if "category" in by_id[kept]:  # 01～03、05 的保留題分類在 explanations_ai.json，由前端補上
+                by_id[hidden]["category"] = by_id[kept]["category"]
     # 使用者已裁決的答案：corrected 改答案並保留 PDF 原答案；confirmed 維持 PDF 答案、不顯示疑義
     if DISPUTES.exists():
         for qid, ruling in json.loads(DISPUTES.read_text("utf-8")).items():
@@ -355,6 +438,7 @@ def main():
     questions += parse_bulleted(ROOT / "ceh13-02.pdf", "02", "☐")
     questions += parse_03(ROOT / "ceh13-03.pdf")
     questions += parse_04(ROOT / "ceh13-04.pdf")
+    questions += parse_05(ROOT / "ceh13-05.pdf")
     apply_duplicates(questions)
     (DATA / "questions.json").write_text(json.dumps(questions, ensure_ascii=False, indent=1), "utf-8")
     (DATA / "parse_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), "utf-8")

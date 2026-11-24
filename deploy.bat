@@ -7,7 +7,7 @@ python scripts\encrypt_data.py --if-changed || exit /b 1
 git add -A || exit /b 1
 
 rem 明文或 PDF 出現在暫存區就中止
-git ls-files | findstr /i /c:".pdf" /c:"data/questions.json" /c:"data/explanations_ai.json" /c:"scripts/disputes.json" /c:"scripts/ai_explanations/" >nul && goto :unsafe
+git ls-files | findstr /i /c:".pdf" /c:"data/questions.json" /c:"data/explanations_ai.json" /c:"scripts/disputes.json" /c:"scripts/ai_explanations/" /c:"scripts/figures_05.json" >nul && goto :unsafe
 
 git diff --cached --quiet && (
   echo 沒有變更需要部署。
